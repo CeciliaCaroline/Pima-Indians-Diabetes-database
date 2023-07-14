@@ -322,8 +322,8 @@ densplot(model_mcmc0[,1:8], xlim=c(-3,3))
 ```
 
 It is clear that the coefficients for variables Skin thickness, Insulin and Blood pressure the posterior distributions are almost centered on 0 so we conclude that they are not strong predictors of diabetes and will exclude them.
+The Preganancies coefficient is borderline and considering that from previous analysis it was observed to have a positive correlation with Age, we can exclude it as a strong predictor
 
-\########################################
 
 ### Normal Uninformed Prior
 
@@ -334,10 +334,10 @@ We will now fit another model considering only the significant predictors. In th
 model1_string = " model {
     for (i in 1:length(Outcome)) {
         Outcome[i] ~ dbern(p[i])         # Likelihood portion
-        logit(p[i]) = b0 + b[1]*Pregnancies[i] + b[2]*Glucose[i] + b[3]*BMI[i] + b[4]*DiabetesPedigreeFunction[i] + b[5]*Age[i]
+        logit(p[i]) = b0 +  b[1]*Glucose[i] + b[2]*BMI[i] + b[3]*DiabetesPedigreeFunction[i] + b[4]*Age[i]
     }
     b0 ~ dnorm(0.0, 1.0/100.0)    # Normal prior with mean 0 and variance 100 (equivalently, precision of 1/100).
-    for (j in 1:8) {
+    for (j in 1:6) {
         b[j] ~ dnorm(0.0, 1.0/100.0)
     }
 } "
@@ -349,7 +349,7 @@ The second step is to set up the model and tell where the data are in a list.
 
 ```{r}
 
-data_jags = list(Outcome=finaldata.train$Outcome, Pregnancies=X1[,"Pregnancies"], Glucose=X1[,"Glucose"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
+data_jags = list(Outcome=finaldata.train$Outcome, Glucose=X1[,"Glucose"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
 
  params = c("b0", "b")
 
@@ -399,7 +399,7 @@ pm_coef1 = colMeans(model_mcmc1)
 # The matrix multiplication below gives the exponentiation part in equation which will then be used to find estimated probabilities.
 
 # Intercept + Design Matrix*Coefficients
-pm_Xb1 = pm_coef1["b0"] + X1[,c(1,2,3,4,5)] %*% pm_coef1[1:5] 
+pm_Xb1 = pm_coef1["b0"] + X1[,c(1,2,3,4)] %*% pm_coef1[1:4] 
 
 # Predicted probabilities that the Outcome = 1 for each observations
 phat1 = 1.0 / (1.0 + exp(-pm_Xb1))  
@@ -426,7 +426,7 @@ Now, using the coefficients obtained, let's find the predicted probabilities of 
 
 ```{r}
 pm_coef2 = colMeans(model_mcmc1)
-pm_Xb2 = pm_coef2["b0"] + X2[,c(1,2,3,4,5)] %*% pm_coef2[1:5] # Intercept + Design Matrix*Coefficients
+pm_Xb2 = pm_coef2["b0"] + X2[,c(1,2,3,4)] %*% pm_coef2[1:4] # Intercept + Design Matrix*Coefficients
 phat2 = 1.0 / (1.0 + exp(-pm_Xb2))
 ```
 
@@ -453,10 +453,10 @@ This time we will use the weakly informative Cauchy priors for the coefficients.
 model2_string = " model {
     for (i in 1:length(Outcome)) {
         Outcome[i] ~ dbern(p[i])
-        logit(p[i]) = b0 + b[1]*Pregnancies[i] + b[2]*Glucose[i] +   b[3]*BMI[i] + b[4]*DiabetesPedigreeFunction[i] + b[5]*Age[i]
+        logit(p[i]) = b0 +  b[1]*Glucose[i] +   b[2]*BMI[i] + b[3]*DiabetesPedigreeFunction[i] + b[4]*Age[i]
     }
     b0 ~ dt(0, 1/10^2, 1)    # t prior with mean 0 and scale 10.This is weakly informative chaucy prior.
-    for (j in 1:8) {
+    for (j in 1:6) {
         b[j] ~ dt(0, 1/2.5^2, 1)  #  t prior with mean 0 and scale 2.5
     }
 }"
@@ -466,7 +466,7 @@ model2_string = " model {
 Second step
 
 ```{r}
-data_jags = list(Outcome=finaldata.train$Outcome, Pregnancies=X1[,"Pregnancies"], Glucose=X1[,"Glucose"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
+data_jags = list(Outcome=finaldata.train$Outcome, Glucose=X1[,"Glucose"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
 
  params = c("b0", "b")
 
@@ -512,7 +512,7 @@ pm_coef3 = colMeans(model_mcmc2)
 # The matrix multiplication below gives the exponentiation part in equation which will then be used to find estimated probabilities.
 
 # Intercept + Design Matrix*Coefficients
-pm_Xb3 = pm_coef3["b0"] + X1[,c(1,2,3,4,5)] %*% pm_coef3[1:5] 
+pm_Xb3 = pm_coef3["b0"] + X1[,c(1,2,3,4)] %*% pm_coef3[1:4] 
 
 # Predicted probabilities that the Outcome = 1 for each observations
 phat3 = 1.0 / (1.0 + exp(-pm_Xb3))  
@@ -534,7 +534,7 @@ X2 = scale(finaldata.test[,-1])*0.5+0
 
 ```{r}
 pm_coef4 = colMeans(model_mcmc2)
-pm_Xb4 = pm_coef4["b0"] + X2[,c(1,2,3,4,5,6,7,8)] %*% pm_coef4[1:8] # Intercept + Design Matrix*Coefficients
+pm_Xb4 = pm_coef4["b0"] + X2[,c(1,2,3,4)] %*% pm_coef4[1:4] # Intercept + Design Matrix*Coefficients
 phat4 = 1.0 / (1.0 + exp(-pm_Xb4))
 ```
 
@@ -550,3 +550,9 @@ pm_coef4
 par(mfrow=c(3,3))
 densplot(model_mcmc2)
 ```
+
+##Conclusion
+
+Both priors lead to almost exact result. Therefore, in these cases the posterior analysis is largely driven by the likelihood and not the prior specification. 
+
+Our preferred model indicates that out of eight predictors, age, glucose, BMI, and Diabetes Pedigree Function were identified as potential risk factors. 
