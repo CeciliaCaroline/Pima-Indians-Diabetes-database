@@ -1,0 +1,102 @@
+Pima Indians Diabetes database
+
+```{r, echo=FALSE}
+# rm(list=ls())
+library(ggplot2)
+library(purrr)
+library(tidyr)
+```
+
+```{r}
+
+diabete <- read.table("data/diabetes.csv", sep=",", header=T)
+head(diabete)
+glm_freq = glm(Outcome~.,data=diabete)
+summary(glm_freq)
+
+# summary(diabete)
+
+```
+
+```{r}
+library(corrplot)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+# check for NAs
+table(is.na(diabete))
+print(paste0("Any null values in the data? ", all(is.na(diabete))))
+
+
+# dimensions of the data
+dim(diabete)
+
+# Summary of the data
+summary(diabete)
+
+
+# plot histogram for each feature
+diabete %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~ key, scales = "free") +
+  geom_histogram() 
+
+
+
+#plot boxplots for each feature
+diabete %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~ key, scales = "free") +
+  geom_boxplot(outlier.colour="black", outlier.shape=16,
+             outlier.size=2, notch=FALSE)
+
+
+pregnancies <- diabete$Pregnancies
+glucose <- diabete$Glucose
+bloodPressure <- diabete$BloodPressure
+skinThickness <- diabete$SkinThickness
+insulin <- diabete$Insulin
+bmi <- diabete$BMI
+dpf <- diabete$DiabetesPedigreeFunction
+age <- diabete$Age
+
+
+# Value of 0 in the dataset refer missing values. Impute missing values with median for all predictors except "Pregnancies".
+myfun = function(x){
+  ifelse(x== 0,median(x),x)
+}
+
+imp.median <- data.frame(
+  sapply(diabete[,-c(1,9)],myfun))
+finaldata = cbind(diabete[,c(9,1)],imp.median)
+head(finaldata)
+
+Cor = cor(finaldata[,-1])
+corrplot(Cor, type="upper", method="number", tl.pos="d")
+```
+
+![]()
+
+```{r}
+# Compare predicators to the Outcome
+
+# Age
+
+ 
+boxplot(diabete$Age, main="Age")
+
+# Age with diabetes
+wd = diabete[diabete$Outcome == 1,]
+boxplot(wd$Age, main="Age (+) Diabetes")
+
+
+#Age without diabetes
+wod = diabete[diabete$Outcome == 0,]
+boxplot(wod$Age, main="Age (-) Diabetes")
+mean(wod$Age)
+mean(wd$Age)
+```
