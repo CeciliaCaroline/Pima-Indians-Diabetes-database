@@ -1,23 +1,53 @@
-Pima Indians Diabetes database
+# Pima Indians Diabetes database
 
 ```{r, echo=FALSE}
-# rm(list=ls())
-#install.packages("ggplot2")
-#install.packages("purrr")
-#install.packages("tidyr")
-#install.packages("Himsc")
-# install.packages("corrplot")
-# install.packages("reshape2")
+rm(list=ls())
+install.packages("ggplot2")
+install.packages("purrr")
+install.packages("tidyr")
+install.packages("Himsc")
+install.packages("corrplot")
+install.packages("reshape2")
+install.packages("rjags")
 library(Hmisc)
 library(ggplot2)
 library(purrr)
 library(tidyr)
 library(corrplot)
 library(reshape2)
+library(rjags)
 ```
 
-```{r}
+## Exploratory Data Analysis
 
+<https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database>.
+
+This data-set is originally from the National Institute of Diabetes and Digestive and Kidney Diseases. The objective of the data-set is to diagnostically predict whether or not a patient has diabetes, based on certain diagnostic measurements included in the data-set. Several constraints were placed on the selection of these instances from a larger database. In particular, all patients here are females at least 21 years old of Pima Indian heritage.
+
+This data-set contains 768 observations, 268 of 768 are diabetic and 500 are non-diabetic.
+
+The target variable is the **Outcome** where if Outcome = 0 -\> non-diabetic and Outcome = 1 -\> diabetic
+
+The predictors are:
+
+1\. Pregnancies: Number of times pregnant;
+
+2\. Glucose: Plasma glucose concentration a 2 hours in an oral glucose tolerance test;
+
+3\. BloodPressure: Diastolic blood pressure (mm Hg);
+
+4\. SkinThickness: Triceps skin fold thickness (mm);
+
+5\. Insulin: 2 -Hour serum insulin (mu U/ml);
+
+6\. BMI: Body mass index (weight in kg/(height in m)\^2);
+
+7\. DiabetesPedigreeFunction: A function which scores likelihood of diabetes based on family history;
+
+8\. Age: Age (years).
+
+```{r}
+# Load the data
 diabete <- read.table("data/diabetes.csv", sep=",", header=T)
 head(diabete)
 glm_freq = glm(Outcome~.,data=diabete)
@@ -25,21 +55,25 @@ summary(glm_freq)
 str(diabete)
 describe(diabete)
 summary(diabete)
+
 # Overall description of the dataset
 # Calculate outcome counts
 outcome_val <- table(diabete$Outcome)
 total <- sum(outcome_val)
+
 # Create the pie chart
 label <- c("Non-Diabetic", "Diabetic")
 percentages <- outcome_val / total
 percent_label <- round(percentages * 100, 1)
-# Set up the plot
+
+# Set up the pie chart to summarize dataset
 par(mar = c(5, 5, 2, 2))
 labels <- paste0(label, ": ", percent_label)
 pie(outcome_val,  main = "Outcome Distribution",
     col = c("gold", "steelblue"), border = "white",
     clockwise = TRUE, init.angle = 110, labels = labels)
 legend("topright", legend = label, fill = c("gold", "steelblue"), bty = "n")
+
 # Reset the margins
 par(mar = c(5, 4, 4, 2))
 # Observations:
@@ -57,51 +91,71 @@ dpf <- diabete$DiabetesPedigreeFunction
 age <- diabete$Age
 outcome <- diabete$Outcome
 
+
 ```
 
+Observations:
+
+-   The average number of Pregnancies are 4.
+-   Glucose, BloodPressure, SkinThickness, BMI and Insulin have minimum values as 0 which is an abnormality.
+
+#### Data Cleaning
+
+The data summary() shows that columns like Glucose, BloodPressure, Skinthikness and Insulin have 0 values which is an abnormality. We assume that values of 0 in the data-set refer to missing values. We will change the values of 0 to median.
+
+From the histograms we can observe the distribution of each predictor
+
 ```{r}
-# Exploring Missing Values & Cleaning The Data
+# Check for Missing Values & Cleaning The Data
+
 # check for NAs
 table(is.na(diabete))
-# The data summary shows that we have some 0 values in our data.
-# # Column like Glucose, BloodPressure, Skinthikness and Insulin must not have 0 values in it.
-# # Later we will change the values of 0 to median
+
+
 # Value of 0 in the dataset refer missing values. Impute missing values with median for all predictors except "Pregnancies".
 cleanData = function(x){
   ifelse(x== 0,median(x),x)
 }
 impute.median <- data.frame(
   sapply(diabete[,-c(1,9)],cleanData))
+
 clean_data = cbind(diabete[,c(9,1)],impute.median)
 
+# Get only the column names
 diabetes_columns <- names(clean_data)[1:9]
 # Iterate over columns
 for (col in diabetes_columns) {
   # Create a new figure
   par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+  
   # Histogram
   hist(clean_data[[col]], breaks = 10, main = "", xlab = col, ylab = "Count")
+  
   # Boxplot
-  boxplot(clean_data[[col]], horizontal = TRUE, main = "", xlab = col)
-  # Show the plot
+  # boxplot(clean_data[[col]], horizontal = TRUE, main = "", xlab = col)
+  
+  # Show the histogram and boxplot for each predictor
   dev.off()
 }
 
 ```
 
-![]()
+#### Analyze the predictors with respect to the outcome
 
 ```{r}
-# Analyze the predictors with respect to the outcome
 # Subset the positive data
 diabetic <- data.frame(clean_data[outcome == 1,])
+
 # Subset the negative data
 non_diabetic <-  data.frame(clean_data[outcome == 0, ])
+
 # Predictors data frame
 predictors <- diabete[, -ncol(clean_data)]
+
 #Target variable
 target <- diabete[, ncol(clean_data)]
 predictor_columns <- names(predictors)[1:8]
+
 # Iterate over columns
 for (col in predictor_columns) {
   plot <- ggplot() +
@@ -115,32 +169,384 @@ for (col in predictor_columns) {
   plot <- plot +
     geom_density(data = diabetic, aes(x =diabetic[[col]], color = "Diabetic"), size = 1) +
     geom_density(data = non_diabetic, aes(x = non_diabetic[[col]], color = "Non-diabetic"), size = 1)
-  # Show the plot
+  # Show the density plot of predictors vs outcome
   print(plot)
 }
 ```
 
-Correlation Matrix
+#### Separate the data into the training set and test set
+
+```{r}
+set.seed(111)
+train = sample(1:nrow(clean_data),nrow(clean_data)*0.6)  #60% data on training set
+finaldata.train = clean_data[train,]
+finaldata.test = clean_data[-train,]
+```
+
+#### Correlation Matrix
+
+There do not seem to be a large number of strongly correlated variables in the data. Age is correlated with number of Pregnancies, which seems rather obvious, and Insulin is slightly correlated with SkinThickness, which seems rather less obvious.
+
 ```{r}
 # Create a heatmap of correlation
-correlation_matrix <- cor(clean_data)
+correlation_matrix <- cor(finaldata.train)
 melted_matrix <- melt(data=correlation_matrix)
+
 # Set up the plot
 plot <- ggplot(melted_matrix, aes(x = Var1, y = Var2, fill = value)) +
   geom_tile() +
   scale_fill_gradient(low = "gold", high = "steelblue") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-# Add correlation values as annotations
+
+
 plot <- plot + geom_text(aes(label = round(value, 2)), size = 3, color = "white")
-# Adjust the plot size
 plot <- plot + labs(x = NULL, y = NULL, title = "Correlation Heatmap")
+
 # Display the plot
 plot
 ```
 
-Model Analysis
+Pregnancies and Age seem to have moderate positive correlation. Similar is the story between Skin Thickness and BMI.
+
+## Modelling
+
+The predictors are measured on various units. Therefore, we are going to scale them so that the posterior results become comparable later on.
+
+Since the outcome is binary we will fit a logistic regression using all of the explanatory variables.
+
+Binary logistic regression models have been developed to study the classification in two categories of the outcome. In a logistic regression model with p predictors, the probability of occurrence of an outcome is given as, $$
+ p_i = P(Y_i =1) = E(Y_i) =  \frac{exp(\beta_0+\beta_1X_1+...+\beta_ 
+ pX_p)}{1+exp(\beta_0+\beta_1X_1+...+\beta_
+ pX_p)}$$ where i = 1,2,....,n subjects in the study.
+
+Equivalently, $$
+p_i = E(Y_i) = \frac{1}{1+exp(-(\beta_0+\beta_1X_1+...+\beta_
+ pX_p))}
+$$ Since the response variable $Y_{i}$ takes binary values, we formulate it to follow a Bernoulli distribution. This gives the likelihood function for the model.
+
+$Y_{i}|p_i \sim {\sf Bernoulli}(p_i)$
+
+where $p_i$ is just defined in the equation above.
+
+**Prior Distribution on Coefficients:** We take two different piors and compare their performances. First, a non-informative normal prior is taken. This is considered as a default vague prior. Next, we take a Cauchy prior suggested by Gelman et.al.(2008).
+
+In order to encourage the model to favor coefficients near zero we will use a double exponential prior for the betas. We will use the double exponential prior to determine which predictors are most statistically significant.
+
+The Cauchy Prior on regression coefficients requires scaling of predictors to have a mean of 0 and standard deviation 0.5. For consistency, we will use the same scaling while using the default normal prior.
+
 ```{r}
+X1 = scale(finaldata.train[,-1])*0.5+0
+colMeans(X1)
+apply(X1,2,sd)
+
+# Do standard scaling here.
+X = scale(finaldata.train[,-1], center = TRUE, scale = TRUE)
+colMeans(X1)
+apply(X1,2,sd)
+```
+
+### Double exponential prior
+
+Model Analysis The model is developed using JAGS which stands for *Just Another Gibbs Sampler*. JAGS's functionalities can be accessed from R using the "rjags" package. The first step is to specify the model. As discussed preivously, the first prior on intercept will be a normal prior with mean 0 and variance 100 whereas the other regression coefficients we will use a double exponential prior.
+
+```{r}
+model0_string = "model {
+    for(i in 1:length(Outcome)){
+        Outcome[i] ~ dbern(p[i])
+        logit(p[i]) = b0 + b[1] * Pregnancies[i] + b[2] * Glucose[i] + 
+          b[3] * BloodPressure[i] + b[4] * SkinThickness[i] + b[5] * Insulin[i] + 
+          b[6] * BMI[i] + b[7] * DiabetesPedigreeFunction[i] + b[8] * Age[i]
+    }
+    
+    b0 ~ dnorm(0.0, 1.0)
+    for(j in 1:8){
+        b[j] ~ ddexp(0.0, sqrt(2.0))
+    }
+}"
+
 
 ```
 
+The second step is to set up the model and tell where the data are in a list.
+
+```{r}
+params = c("b0", "b")
+
+data_jags = list(Outcome=finaldata.train$Outcome, Pregnancies=X1[,"Pregnancies"], Glucose=X1[,"Glucose"], BloodPressure=X1[,"BloodPressure"], SkinThickness=X1[,"SkinThickness"], Insulin=X1[,"Insulin"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
+
+# Run three different chains with different starting values
+model0 = jags.model(textConnection(model0_string), data = data_jags, n.chains=3)
+
+# Give a burn-in period of 1000 iterations.
+update(model0, 1e3)
+
+# Run 5000 iterations.
+model_sim0 = coda.samples(model = model0, variable.names = params, n.iter = 5e3)
+
+# Combine the results from three different chains by creating matrices that contain the simulations and then stacking them together.
+model_mcmc0 = as.mcmc(do.call(rbind, model_sim0))
+
+```
+
+#### Convergence Diagnostics
+
+Analyze whether the chains converged or not.
+
+```{r}
+# Convergence diagnostics. Start with trace plots.
+# Potential scale reduction factors of 1 indicate models have probably converged.
+gelman.diag(model_sim0)  
+
+# Autocorrelation quickly dropped to near zero within first 5 lags. 
+# No autocorrelation issue in the estimated coefficients. 
+autocorr.plot(model_sim0) 
+
+# Different colors for different chains we ran. Look random (no trend) which is desirable.
+par(mar=c(2,2,2,2))
+plot(model_sim0) 
+dev.off()
+
+# model summaries.
+summary(model_sim0)
+
+
+```
+
+The generated graphs show that the chains are indistinguishable which is a good sign and auto correlation doesn't seem to be problematic.
+
+Now we will look at densplots to see which variables are significant.
+
+```{r}
+densplot(model_mcmc0[,1:8], xlim=c(-3,3))
+```
+
+It is clear that the coefficients for variables Skin thickness, Insulin and Blood pressure the posterior distributions are almost centered on 0 so we conclude that they are not strong predictors of diabetes and will exclude them.
+
+\########################################
+
+### Normal Uninformed Prior
+
+We will now fit another model considering only the significant predictors. In this model, as previously mentioned, the first prior on intercept as well as other regression coefficients will be a normal prior with mean 0 and variance 100. These values make the prior non-informative and hence the inferences are typically data-driven.
+
+```{r}
+
+model1_string = " model {
+    for (i in 1:length(Outcome)) {
+        Outcome[i] ~ dbern(p[i])         # Likelihood portion
+        logit(p[i]) = b0 + b[1]*Pregnancies[i] + b[2]*Glucose[i] + b[3]*BMI[i] + b[4]*DiabetesPedigreeFunction[i] + b[5]*Age[i]
+    }
+    b0 ~ dnorm(0.0, 1.0/100.0)    # Normal prior with mean 0 and variance 100 (equivalently, precision of 1/100).
+    for (j in 1:8) {
+        b[j] ~ dnorm(0.0, 1.0/100.0)
+    }
+} "
+
+
+```
+
+The second step is to set up the model and tell where the data are in a list.
+
+```{r}
+
+data_jags = list(Outcome=finaldata.train$Outcome, Pregnancies=X1[,"Pregnancies"], Glucose=X1[,"Glucose"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
+
+ params = c("b0", "b")
+
+ # Run three different chains with different starting values
+ model1 = jags.model(textConnection(model1_string), data=data_jags, n.chains=3)
+#
+# # Give a burn-in period of 1000 iterations. Samples are not kept for first 1000 iterations.
+update(model1, 1e3)
+#
+ # Actual posterior simulations we will keep. Run 5000 iterations.
+ model_sim1 = coda.samples(model = model1, variable.names = params, n.iter = 5e3)
+#
+ # Combine the results from three different chains by creating matrices that contain the simulations and then stacking them together.
+model_mcmc1 = as.mcmc(do.call(rbind, model_sim1))
+```
+
+Let's perform some convergence diagnostics for the Markov Chains.
+
+```{r}
+# Convergence diagnostics. Start with trace plots.
+# Potential scale reduction factors of 1 indicate models have probably converged.
+gelman.diag(model_sim1)  
+
+# Autocorrelation quickly dropped to near zero within first 5 lags. 
+# No autocorrelation issue in the estimated coefficients. 
+autocorr.plot(model_sim1) 
+
+# Different colors for different chains we ran. Look random (no trend) which is desirable.
+par(mar=c(2,2,2,2))
+plot(model_sim1) 
+dev.off()
+
+# model summaries.
+summary(model_sim1)
+```
+
+The convergence criteria look acceptable and auto correlation doesn't seem to be problematic. Now we will look at densplots to see which variables are significant.
+
+#### Prediction
+
+If we have the regression coefficients and the predictor values, we can plug them into the second equation for $p_i$ above to get an estimate of the probability that the Outcome = 1.
+
+```{r}
+# Extract posterior mean of coefficients
+pm_coef1 = colMeans(model_mcmc1)
+
+# The matrix multiplication below gives the exponentiation part in equation which will then be used to find estimated probabilities.
+
+# Intercept + Design Matrix*Coefficients
+pm_Xb1 = pm_coef1["b0"] + X1[,c(1,2,3,4,5)] %*% pm_coef1[1:5] 
+
+# Predicted probabilities that the Outcome = 1 for each observations
+phat1 = 1.0 / (1.0 + exp(-pm_Xb1))  
+
+# The plot of predicted probabilities against the actual outcome value gives a rough idea on how successful the model is on the training dataset.
+plot(phat1, jitter(finaldata.train$Outcome))
+
+```
+
+Looks okay. Observations with lower probabilities of Outcome=0 assigned by the model were often actually 0 in the dataset. It would be more interesting to see this result in the test dataset.
+
+Let's select 0.5 as the cut-off. Probabilities greater than 0.5 will be labeled '1'(Presence of Diabetes) as the outcome and below 0.5 will be labeled '0' (Absence of Diabetes).
+
+```{r}
+# Correct classification rate in the training dataset  
+(tab0.5 = table(phat1 > 0.5, finaldata.train$Outcome))
+sum(diag(tab0.5)) / sum(tab0.5)  
+
+# Now, let's see the model's performance in the test dataset. Again, we start by standardizing the data.
+X2 = scale(finaldata.test[,-1])*0.5+0
+```
+
+Now, using the coefficients obtained, let's find the predicted probabilities of individual observations in the test dataset.
+
+```{r}
+pm_coef2 = colMeans(model_mcmc1)
+pm_Xb2 = pm_coef2["b0"] + X2[,c(1,2,3,4,5)] %*% pm_coef2[1:5] # Intercept + Design Matrix*Coefficients
+phat2 = 1.0 / (1.0 + exp(-pm_Xb2))
+```
+
+Model performance in the test dataset.
+
+```{r}
+plot(phat2, jitter(finaldata.test$Outcome))
+
+(tab0.5 = table(phat2 > 0.5, finaldata.test$Outcome))
+sum(diag(tab0.5)) / sum(tab0.5)  # Correct classification rate in the training dataset
+
+pm_coef2
+par(mfrow=c(3,3))
+densplot(model_mcmc1)
+```
+
+Similar accuracy as the training data is found. Next, we want to proceed with a different prior and compare the performances of the two models.
+
+### Cauchy Prior
+
+This time we will use the weakly informative Cauchy priors for the coefficients. As recommended by Gelman et.al (2008), data are first standardized so that all continuous variables have mean 0 and standard deviation 0.5. Then the intercept will be specified a Cauchy prior distribution centered at 0 and scale of 10. The other coefficients will get a scale of 2.5. Again, let's set up, specify and run the model in training data.
+
+```{r}
+model2_string = " model {
+    for (i in 1:length(Outcome)) {
+        Outcome[i] ~ dbern(p[i])
+        logit(p[i]) = b0 + b[1]*Pregnancies[i] + b[2]*Glucose[i] +   b[3]*BMI[i] + b[4]*DiabetesPedigreeFunction[i] + b[5]*Age[i]
+    }
+    b0 ~ dt(0, 1/10^2, 1)    # t prior with mean 0 and scale 10.This is weakly informative chaucy prior.
+    for (j in 1:8) {
+        b[j] ~ dt(0, 1/2.5^2, 1)  #  t prior with mean 0 and scale 2.5
+    }
+}"
+
+```
+
+Second step
+
+```{r}
+data_jags = list(Outcome=finaldata.train$Outcome, Pregnancies=X1[,"Pregnancies"], Glucose=X1[,"Glucose"], BMI=X1[,"BMI"], DiabetesPedigreeFunction=X1[,"DiabetesPedigreeFunction"], Age=X1[,"Age"])
+
+ params = c("b0", "b")
+
+ # Run three different chains with different starting values
+ model2 = jags.model(textConnection(model2_string), data=data_jags, n.chains=3)
+#
+# # Give a burn-in period of 1000 iterations. Samples are not kept for first 1000 iterations.
+update(model2, 1e3)
+#
+ # Actual posterior simulations we will keep. Run 5000 iterations.
+ model_sim2 = coda.samples(model = model2, variable.names = params, n.iter = 5e3)
+#
+ # Combine the results from three different chains by creating matrices that contain the simulations and then stacking them together.
+model_mcmc2 = as.mcmc(do.call(rbind, model_sim2))
+```
+
+Convergence diagnostics
+
+```{r}
+# Convergence diagnostics. Start with trace plots.
+# Potential scale reduction factors of 1 indicate models have probably converged.
+gelman.diag(model_sim2)  
+
+# Autocorrelation quickly dropped to near zero within first 5 lags. 
+# No autocorrelation issue in the estimated coefficients. 
+autocorr.plot(model_sim2) 
+
+# Different colors for different chains we ran. Look random (no trend) which is desirable.
+par(mar=c(2,2,2,2))
+plot(model_sim2) 
+dev.off()
+
+# model summaries.
+summary(model_sim2)
+```
+
+#### Prediction
+
+```{r}
+# Extract posterior mean of coefficients
+pm_coef3 = colMeans(model_mcmc2)
+
+# The matrix multiplication below gives the exponentiation part in equation which will then be used to find estimated probabilities.
+
+# Intercept + Design Matrix*Coefficients
+pm_Xb3 = pm_coef3["b0"] + X1[,c(1,2,3,4,5)] %*% pm_coef3[1:5] 
+
+# Predicted probabilities that the Outcome = 1 for each observations
+phat3 = 1.0 / (1.0 + exp(-pm_Xb3))  
+
+# The plot of predicted probabilities against the actual outcome value gives a rough idea on how successful the model is on the training dataset.
+plot(phat3, jitter(finaldata.train$Outcome))
+```
+
+Looks okay.
+
+```{r}
+# Correct classification rate in the training dataset  
+(tab0.5 = table(phat3 > 0.5, finaldata.train$Outcome))
+sum(diag(tab0.5)) / sum(tab0.5)  
+
+# Now, let's see the model's performance in the test dataset. Again, we start by standardizing the data.
+X2 = scale(finaldata.test[,-1])*0.5+0
+```
+
+```{r}
+pm_coef4 = colMeans(model_mcmc2)
+pm_Xb4 = pm_coef4["b0"] + X2[,c(1,2,3,4,5,6,7,8)] %*% pm_coef4[1:8] # Intercept + Design Matrix*Coefficients
+phat4 = 1.0 / (1.0 + exp(-pm_Xb4))
+```
+
+Model performance in test dataset
+
+```{r}
+plot(phat4, jitter(finaldata.test$Outcome))
+
+(tab0.5 = table(phat4 > 0.5, finaldata.test$Outcome))
+sum(diag(tab0.5)) / sum(tab0.5)  # Correct classification rate in the training dataset
+
+pm_coef4
+par(mfrow=c(3,3))
+densplot(model_mcmc2)
+```
