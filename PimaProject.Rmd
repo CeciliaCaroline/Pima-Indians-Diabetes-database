@@ -2,9 +2,18 @@ Pima Indians Diabetes database
 
 ```{r, echo=FALSE}
 # rm(list=ls())
+#install.packages("ggplot2")
+#install.packages("purrr")
+#install.packages("tidyr")
+#install.packages("Himsc")
+# install.packages("corrplot")
+# install.packages("reshape2")
+library(Hmisc)
 library(ggplot2)
 library(purrr)
 library(tidyr)
+library(corrplot)
+library(reshape2)
 ```
 
 ```{r}
@@ -13,48 +22,31 @@ diabete <- read.table("data/diabetes.csv", sep=",", header=T)
 head(diabete)
 glm_freq = glm(Outcome~.,data=diabete)
 summary(glm_freq)
-
-# summary(diabete)
-
-```
-
-```{r}
-library(corrplot)
-library(ggplot2)
-library(purrr)
-library(tidyr)
-# check for NAs
-table(is.na(diabete))
-print(paste0("Any null values in the data? ", all(is.na(diabete))))
-
-
-# dimensions of the data
-dim(diabete)
-
-# Summary of the data
+str(diabete)
+describe(diabete)
 summary(diabete)
-
-
-# plot histogram for each feature
-diabete %>%
-  keep(is.numeric) %>% 
-  gather() %>% 
-  ggplot(aes(value)) +
-  facet_wrap(~ key, scales = "free") +
-  geom_histogram() 
-
-
-
-#plot boxplots for each feature
-diabete %>%
-  keep(is.numeric) %>% 
-  gather() %>% 
-  ggplot(aes(value)) +
-  facet_wrap(~ key, scales = "free") +
-  geom_boxplot(outlier.colour="black", outlier.shape=16,
-             outlier.size=2, notch=FALSE)
-
-
+# Overall description of the dataset
+# Calculate outcome counts
+outcome_val <- table(diabete$Outcome)
+total <- sum(outcome_val)
+# Create the pie chart
+label <- c("Non-Diabetic", "Diabetic")
+percentages <- outcome_val / total
+percent_label <- round(percentages * 100, 1)
+# Set up the plot
+par(mar = c(5, 5, 2, 2))
+labels <- paste0(label, ": ", percent_label)
+pie(outcome_val,  main = "Outcome Distribution",
+    col = c("gold", "steelblue"), border = "white",
+    clockwise = TRUE, init.angle = 110, labels = labels)
+legend("topright", legend = label, fill = c("gold", "steelblue"), bty = "n")
+# Reset the margins
+par(mar = c(5, 4, 4, 2))
+# Observations:
+#
+# The average number of Pregnancies are 4.
+# Glucose, BloodPressure, SkinThickness, BMI and Insulin have minimum values as 0 which seems like an error and should be explore later.
+# Pregnancies, SkinThickness, Insulin and Age have major difference between 3rd quartile and maximum value. This represent the chances of outliers in the data.
 pregnancies <- diabete$Pregnancies
 glucose <- diabete$Glucose
 bloodPressure <- diabete$BloodPressure
@@ -63,40 +55,92 @@ insulin <- diabete$Insulin
 bmi <- diabete$BMI
 dpf <- diabete$DiabetesPedigreeFunction
 age <- diabete$Age
+outcome <- diabete$Outcome
 
+```
 
+```{r}
+# Exploring Missing Values & Cleaning The Data
+# check for NAs
+table(is.na(diabete))
+# The data summary shows that we have some 0 values in our data.
+# # Column like Glucose, BloodPressure, Skinthikness and Insulin must not have 0 values in it.
+# # Later we will change the values of 0 to median
 # Value of 0 in the dataset refer missing values. Impute missing values with median for all predictors except "Pregnancies".
-myfun = function(x){
+cleanData = function(x){
   ifelse(x== 0,median(x),x)
 }
+impute.median <- data.frame(
+  sapply(diabete[,-c(1,9)],cleanData))
+clean_data = cbind(diabete[,c(9,1)],impute.median)
 
-imp.median <- data.frame(
-  sapply(diabete[,-c(1,9)],myfun))
-finaldata = cbind(diabete[,c(9,1)],imp.median)
-head(finaldata)
+diabetes_columns <- names(clean_data)[1:9]
+# Iterate over columns
+for (col in diabetes_columns) {
+  # Create a new figure
+  par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+  # Histogram
+  hist(clean_data[[col]], breaks = 10, main = "", xlab = col, ylab = "Count")
+  # Boxplot
+  boxplot(clean_data[[col]], horizontal = TRUE, main = "", xlab = col)
+  # Show the plot
+  dev.off()
+}
 
-Cor = cor(finaldata[,-1])
-corrplot(Cor, type="upper", method="number", tl.pos="d")
 ```
 
 ![]()
 
 ```{r}
-# Compare predicators to the Outcome
-
-# Age
-
- 
-boxplot(diabete$Age, main="Age")
-
-# Age with diabetes
-wd = diabete[diabete$Outcome == 1,]
-boxplot(wd$Age, main="Age (+) Diabetes")
-
-
-#Age without diabetes
-wod = diabete[diabete$Outcome == 0,]
-boxplot(wod$Age, main="Age (-) Diabetes")
-mean(wod$Age)
-mean(wd$Age)
+# Analyze the predictors with respect to the outcome
+# Subset the positive data
+diabetic <- data.frame(clean_data[outcome == 1,])
+# Subset the negative data
+non_diabetic <-  data.frame(clean_data[outcome == 0, ])
+# Predictors data frame
+predictors <- diabete[, -ncol(clean_data)]
+#Target variable
+target <- diabete[, ncol(clean_data)]
+predictor_columns <- names(predictors)[1:8]
+# Iterate over columns
+for (col in predictor_columns) {
+  plot <- ggplot() +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 16),
+          axis.title = element_text(size = 14),
+          axis.text = element_text(size = 12)) +
+    labs(x = col, y = "Density", title = paste(col, "Distribution by Outcome", sep=" ")) +
+    scale_color_manual(values = c("steelblue", "gold"))
+  # Add density plots for positive and negative outcomes
+  plot <- plot +
+    geom_density(data = diabetic, aes(x =diabetic[[col]], color = "Diabetic"), size = 1) +
+    geom_density(data = non_diabetic, aes(x = non_diabetic[[col]], color = "Non-diabetic"), size = 1)
+  # Show the plot
+  print(plot)
+}
 ```
+
+Correlation Matrix
+```{r}
+# Create a heatmap of correlation
+correlation_matrix <- cor(clean_data)
+melted_matrix <- melt(data=correlation_matrix)
+# Set up the plot
+plot <- ggplot(melted_matrix, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "gold", high = "steelblue") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# Add correlation values as annotations
+plot <- plot + geom_text(aes(label = round(value, 2)), size = 3, color = "white")
+# Adjust the plot size
+plot <- plot + labs(x = NULL, y = NULL, title = "Correlation Heatmap")
+# Display the plot
+plot
+```
+
+Model Analysis
+```{r}
+
+```
+
